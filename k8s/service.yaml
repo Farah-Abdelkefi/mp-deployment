@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: flask-app-service
+  namespace: flask-app
+spec:
+  selector:
+    app: flask-app
+  ports:
+    - protocol: TCP
+      port: 80          # Port to expose externally
+      targetPort: 5000  # Port the app listens to
+      NodePort: 30080
+  type: NodePort  # Expose it on a NodePort for local testing
+  externalTrafficPolicy: Cluster  # Set externalTrafficPolicy to Cluster
