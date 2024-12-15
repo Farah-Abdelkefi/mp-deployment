@@ -1,0 +1,87 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - master
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    # Set up Docker and Minikube
+    - name: Set up Docker Desktop and Minikube
+      run: |
+        # Install Docker Desktop and Minikube dependencies
+        curl -Lo minikube https://storage.googleapis.com/minikube/releases/latest/minikube-linux-amd64
+        chmod +x minikube
+        mv minikube /usr/local/bin/
+        sudo apt-get install -y docker.io
+
+        # Start Minikube
+        minikube start --driver=docker
+
+        # Set up Docker environment to use Minikube's Docker daemon
+        eval $(minikube -p minikube docker-env)
+
+    # Log in to Docker Hub
+    - name: Log in to Docker Hub
+      run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+
+    # Build Docker image in Minikube's Docker environment
+    - name: Build and push Docker image
+      run: |
+        docker build -t flask-app:latest .
+        docker tag flask-app:latest $(minikube ip):5000/flask-app:latest  # Use Minikube's IP for Docker registry
+        docker push $(minikube ip):5000/flask-app:latest  # Push to Minikube's local registry
+
+    # Deploy to Minikube Kubernetes cluster
+    - name: Deploy to local Kubernetes (Minikube)
+      run: |
+        kubectl apply -f k8s/deployment.yaml
+        kubectl apply -f k8s/service.yaml
+
+    # Rollback deployment in case of failure
+    - name: Rollback deployment in case of failure
+      if: failure()
+      run: kubectl rollout undo deployment/flask-app
+
+    # Record deployment frequency
+    - name: Record deployment frequency
+      run: echo "Deployment occurred at $(date)" >> deployment-frequency.log
+
+    # Record lead time
+    - name: Record lead time
+      run: echo "Deployment started at $(date)" >> lead-time.log
+
+    # Calculate failure rate
+    - name: Calculate failure rate
+      run: |
+        if [ "$?" -ne 0 ]; then
+          echo "Change failed" >> failure-rate.log
+        else
+          echo "Change successful" >> success-rate.log
+        fi
+
+    # Measure restore time
+    - name: Measure restore time
+      run: |
+        start_time=$(date +%s)
+        # Trigger a rollback or fix the issue
+        end_time=$(date +%s)
+        restore_time=$((end_time - start_time))
+        echo "Restore time: $restore_time seconds" >> restore-time.log
+
+    # Upload DORA metrics logs
+    - name: Upload DORA metrics logs
+      uses: actions/upload-artifact@v3
+      with:
+        name: dora-metrics-logs
+        path: |
+          deployment-frequency.log
+          lead-time.log
+          failure-rate.log
+          restore-time.log
